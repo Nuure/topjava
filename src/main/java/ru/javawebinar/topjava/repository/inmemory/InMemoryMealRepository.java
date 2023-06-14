@@ -5,18 +5,16 @@ import ru.javawebinar.topjava.model.Meal;
 import ru.javawebinar.topjava.repository.MealRepository;
 import ru.javawebinar.topjava.util.MealsUtil;
 
-import java.time.LocalDateTime;
-import java.util.Collection;
+import java.time.LocalDate;
+import java.time.LocalTime;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import static java.time.LocalDateTime.MAX;
-import static java.time.LocalDateTime.MIN;
 import static java.util.Comparator.comparing;
 import static java.util.stream.Collectors.toList;
 import static ru.javawebinar.topjava.util.DateTimeUtil.isBetweenHalfOpen;
-import static ru.javawebinar.topjava.web.SecurityUtil.authUserId;
 
 @Repository
 public class InMemoryMealRepository implements MealRepository {
@@ -24,71 +22,53 @@ public class InMemoryMealRepository implements MealRepository {
     private final AtomicInteger counter = new AtomicInteger(0);
 
     {
-        MealsUtil.meals.forEach(this::saveTest);
+        MealsUtil.meals.forEach(meal -> this.save(meal, 1));
+        MealsUtil.mealsForAnotherUser.forEach(meal -> this.save(meal, 2));
     }
 
     @Override
     public Meal save(Meal meal, int userId) {
         if (meal.isNew()) {
             meal.setId(counter.incrementAndGet());
+            meal.setUserId(userId);
             repository.put(meal.getId(), meal);
             return meal;
         }
         // handle case: update, but not present in storage
-        else if (meal.getUserId() == userId) {
-            return repository.computeIfPresent(meal.getId(), (id, oldMeal) -> meal);
-        } else return null;
-    }
-
-    public Meal saveTest(Meal meal) {
-        if (meal.isNew()) {
-            meal.setId(counter.incrementAndGet());
-            repository.put(meal.getId(), meal);
-            return meal;
-        }
-        // handle case: update, but not present in storage
-        else if (meal.getUserId() == authUserId()) {
-            return repository.computeIfPresent(meal.getId(), (id, oldMeal) -> meal);
+        if (repository.get(meal.getId()).getUserId() == userId) {
+            return repository.compute(meal.getId(), (id, oldMeal) -> meal);
         } else return null;
     }
 
     @Override
     public boolean delete(int id, int userId) {
-        try {
-            if (userId == repository.get(id).getUserId()) {
-                repository.remove(id);
-                return true;
-            }
-        } catch (NullPointerException e) {
-            return false;
-        }
-        return false;
+        Meal meal = repository.getOrDefault(id, null);
+        if (meal != null && userId == meal.getUserId()) {
+            repository.remove(id);
+            return true;
+        } else return false;
     }
-
 
     @Override
     public Meal get(int id, int userId) {
-        try {
-            if (userId == repository.get(id).getUserId()) {
-                return repository.get(id);
-            }
-        } catch (NullPointerException e) {
-            return null;
-        }
-        return null;
+        Meal meal = repository.getOrDefault(id, null);
+        if (meal != null && userId == meal.getUserId()) {
+            return meal;
+        } else return null;
     }
 
     @Override
-    public Collection<Meal> getAll(int userId) {
-        return getFiltered(userId, MIN, MAX);
+    public List<Meal> getAll(int userId) {
+        return getFiltered(userId, LocalDate.MIN, LocalDate.MAX, LocalTime.MIN, LocalTime.MAX);
     }
 
     @Override
-    public Collection<Meal> getFiltered(int userId, LocalDateTime startDateTime, LocalDateTime endDateTime) {
+    public List<Meal> getFiltered(int userId, LocalDate startDate, LocalDate endDate, LocalTime startTime, LocalTime endTime) {
         return repository.values()
                 .stream()
                 .filter(meal -> meal.getUserId() == userId)
-                .filter(meal -> isBetweenHalfOpen(meal.getDateTime(), startDateTime, endDateTime))
+                .filter(meal -> isBetweenHalfOpen(meal.getDate(), startDate, endDate))
+                .filter(meal -> isBetweenHalfOpen(meal.getTime(), startTime, endTime))
                 .sorted(comparing(Meal::getDateTime).reversed())
                 .collect(toList());
     }
