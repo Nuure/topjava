@@ -75,6 +75,10 @@ public class User extends AbstractNamedEntity {
         setRoles(roles);
     }
 
+    public User (Integer id) {
+        super(id, "temp");
+    }
+
     public String getEmail() {
         return email;
     }
